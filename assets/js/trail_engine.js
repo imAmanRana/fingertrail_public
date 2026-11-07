@@ -53,7 +53,7 @@
   let viewerBurned = false;
 
   // DOM Elements
-  let demoCard, statusText, countdownBox, hintEl, playBtn, clearBtn;
+  let demoCard, statusText, countdownBox, hintEl, playBtn, clearBtn, shareBtn;
   let palettePicker, actionButtons, viewerActions, viewerTag, replyBtn;
 
   function init() {
@@ -67,6 +67,7 @@
     hintEl = document.getElementById('canvasHint');
     playBtn = document.getElementById('playBtn');
     clearBtn = document.getElementById('clearBtn');
+    shareBtn = document.getElementById('shareBtn');
     palettePicker = document.getElementById('palettePicker');
     actionButtons = document.getElementById('actionButtons');
     viewerActions = document.getElementById('viewerActions');
@@ -94,6 +95,7 @@
 
     if (playBtn) playBtn.addEventListener('click', toggleReplay);
     if (clearBtn) clearBtn.addEventListener('click', resetCanvas);
+    if (shareBtn) shareBtn.addEventListener('click', shareCurrentTrail);
     if (replyBtn) replyBtn.addEventListener('click', switchToStudioMode);
 
     // Check for URL hash payload (#trail=...)
@@ -130,11 +132,11 @@
 
   function handlePointerDown(e) {
     if (isViewerMode) {
-      // In Viewer Mode, do not permit drawing over incoming message
       if (!viewerBurned) {
-        setStatus('🔒 Secret message in view — drawing disabled until message vaporizes.');
+        setStatus('🔒 Secret message playing — drawing disabled until self-destruct.');
+        return;
       }
-      return;
+      switchToStudioMode();
     }
     if (isReplaying) cancelReplay();
     isDrawing = true;
@@ -259,7 +261,11 @@
     }
 
     if (strokes.length === 0) {
-      loadSampleTrail();
+      setStatus('✏️ Draw a gesture on the canvas first, then tap Replay!');
+      if (hintEl) {
+        hintEl.style.opacity = '1';
+        hintEl.querySelector('p').textContent = 'Draw with your finger or stylus first...';
+      }
       return;
     }
 
@@ -442,25 +448,28 @@
         ctx.fillStyle = '#06070a';
         ctx.fillRect(0, 0, width, height);
         if (isViewerMode) {
+          // Automatically restore Studio Creator Mode so recipient can immediately draw!
+          isViewerMode = false;
           viewerBurned = true;
-          if (replyBtn) {
-            replyBtn.style.display = 'inline-flex';
-            replyBtn.textContent = 'Reply with a Finger Trail';
-          }
-          if (viewerTag) {
-            viewerTag.textContent = '✨ Message vaporized';
-          }
+          currentLoadedTrailId = null;
+          if (demoCard) demoCard.classList.remove('is-viewer-mode');
+          if (palettePicker) palettePicker.style.display = 'flex';
+          if (actionButtons) actionButtons.style.display = 'flex';
+          if (viewerActions) viewerActions.style.display = 'none';
+          if (canvas) canvas.style.cursor = 'crosshair';
+
           if (hintEl) {
             hintEl.style.opacity = '1';
-            hintEl.querySelector('p').textContent = 'Secret message vaporized forever. Draw a reply below!';
+            hintEl.querySelector('p').textContent = 'Your turn! Draw with finger or stylus to reply...';
           }
+          setStatus('Trail vaporized forever. Zero-trace verified. Now draw your reply!');
         } else {
           if (hintEl) {
             hintEl.style.opacity = '1';
             hintEl.querySelector('p').textContent = 'Note has self-destructed. Draw a new one!';
           }
+          setStatus('Trail vaporized forever. Zero-trace verified.');
         }
-        setStatus('Trail vaporized forever. Zero-trace verified.');
       }
     }
     fade();
@@ -556,6 +565,128 @@
     setStatus('Ready to record gestures.');
   }
 
+  async function encodePayload(obj) {
+    const jsonStr = JSON.stringify(obj);
+    if (typeof CompressionStream !== 'undefined') {
+      try {
+        const cs = new CompressionStream('gzip');
+        const writer = cs.writable.getWriter();
+        writer.write(new TextEncoder().encode(jsonStr));
+        writer.close();
+        const arrayBuffer = await new Response(cs.readable).arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        let binary = '';
+        for (let i = 0; i < bytes.byteLength; i++) {
+          binary += String.fromCharCode(bytes[i]);
+        }
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      } catch (gzipErr) {
+        console.warn('Gzip stream failed, falling back to base64:', gzipErr);
+      }
+    }
+    return btoa(unescape(encodeURIComponent(jsonStr))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  async function shareCurrentTrail() {
+    if (strokes.length === 0) {
+      setStatus('✏️ Please draw a gesture on the canvas before sharing!');
+      if (hintEl) {
+        hintEl.style.opacity = '1';
+        hintEl.querySelector('p').textContent = 'Draw with your finger or stylus first...';
+      }
+      return;
+    }
+
+    setStatus('Generating compressed link...');
+
+    try {
+      const canvasWidth = canvas.width / dpr;
+      const canvasHeight = canvas.height / dpr;
+      const sessionStartT = strokes[0].points[0].t;
+
+      const formattedStrokes = strokes.map((s, idx) => {
+        const hexColor = PALETTES[s.color] ? PALETTES[s.color].glow : (s.color || '#00f2fe');
+        const strokeStartT = Math.round(s.points[0].t - sessionStartT);
+        const strokeEndT = Math.round(s.points[s.points.length - 1].t - sessionStartT);
+
+        // Decimate points to keep link compact and fast (~60fps)
+        const pts = [];
+        const minInterval = 15;
+        let lastT = -999;
+        for (let i = 0; i < s.points.length; i++) {
+          const p = s.points[i];
+          const relT = Math.round(p.t - sessionStartT);
+          if (i === 0 || i === s.points.length - 1 || (relT - lastT) >= minInterval) {
+            pts.push([
+              Math.round((p.x / canvasWidth) * 1000) / 1000,
+              Math.round((p.y / canvasHeight) * 1000) / 1000,
+              relT,
+              1.0
+            ]);
+            lastT = relT;
+          }
+        }
+
+        return {
+          b: 'neon',
+          c: hexColor,
+          w: s.width || 5,
+          st: strokeStartT,
+          et: strokeEndT,
+          p: pts
+        };
+      });
+
+      const totalDuration = Math.max(1000, Math.round(strokes[strokes.length - 1].points[strokes[strokes.length - 1].points.length - 1].t - sessionStartT));
+
+      const payloadObj = {
+        i: 'web_' + Math.random().toString(36).substring(2, 10),
+        d: totalDuration,
+        e: 8,
+        t: 'Secret Gesture',
+        s: formattedStrokes
+      };
+
+      const fragment = await encodePayload(payloadObj);
+      const baseUrl = 'https://fingertrail.thoughtstopen.com';
+      const shareUrl = `${baseUrl}/#trail=${fragment}`;
+
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: 'Finger Trail: Secret Ephemeral Gesture',
+            text: '🔒 I drew you a self-erasing Finger Trail by Thoughts to Pen! Watch it animate before it vaporizes forever:',
+            url: shareUrl
+          });
+          setStatus('✨ Trail shared successfully!');
+          return;
+        } catch (shareErr) {
+          if (shareErr.name === 'AbortError') {
+            setStatus('Share cancelled.');
+            return;
+          }
+        }
+      }
+
+      // Clipboard fallback
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(shareUrl);
+        setStatus('🔗 Secret link copied to clipboard! Paste it into WhatsApp, Telegram, or any chat.');
+      } else {
+        const dummy = document.createElement('textarea');
+        dummy.value = shareUrl;
+        document.body.appendChild(dummy);
+        dummy.select();
+        document.execCommand('copy');
+        document.body.removeChild(dummy);
+        setStatus('🔗 Secret link copied to clipboard! Paste it into WhatsApp, Telegram, or any chat.');
+      }
+    } catch (err) {
+      console.error('Failed to share trail:', err);
+      setStatus('Could not generate share link. Please try again.');
+    }
+  }
+
   function loadSampleTrail() {
     // Generate a sleek infinity loop "Finger Trail" signature
     const cx = (canvas.width / dpr) / 2;
@@ -649,24 +780,17 @@
       if (data && data.s && Array.isArray(data.s) && data.s.length > 0) {
         const trailId = data.i || (typeof payload === 'string' ? 'hash_' + payload.substring(0, 16) : null);
         if (trailId && localStorage.getItem('ft_burned_' + trailId)) {
-          isViewerMode = true;
+          isViewerMode = false;
           viewerBurned = true;
-          if (demoCard) demoCard.classList.add('is-viewer-mode');
-          if (palettePicker) palettePicker.style.display = 'none';
-          if (actionButtons) actionButtons.style.display = 'none';
-          if (viewerActions) viewerActions.style.display = 'flex';
-          if (replyBtn) {
-            replyBtn.style.display = 'inline-flex';
-            replyBtn.textContent = 'Draw Your Own Trail';
-          }
-          if (viewerTag) {
-            viewerTag.textContent = '🔒 Previously Vaporized';
-          }
-          if (canvas) canvas.style.cursor = 'default';
-          setStatus('This Finger Trail was already viewed and vaporized on this device.');
+          if (demoCard) demoCard.classList.remove('is-viewer-mode');
+          if (palettePicker) palettePicker.style.display = 'flex';
+          if (actionButtons) actionButtons.style.display = 'flex';
+          if (viewerActions) viewerActions.style.display = 'none';
+          if (canvas) canvas.style.cursor = 'crosshair';
+          setStatus('This Finger Trail was already viewed and vaporized on this device. Draw your own!');
           if (hintEl) {
             hintEl.style.opacity = '1';
-            hintEl.querySelector('p').textContent = 'This secret trail has already self-destructed and cannot be replayed.';
+            hintEl.querySelector('p').textContent = 'This secret trail has already self-destructed. Draw with finger or stylus!';
           }
           if (window.history && window.history.replaceState) {
             window.history.replaceState(null, '', window.location.pathname + window.location.search);
