@@ -1,0 +1,44 @@
+<div class="canvas-card" id="demo">
+  <div class="canvas-card-header">
+    <div class="canvas-status">
+      <span class="brand-dot"></span>
+      <span id="canvasStatusText">Ready to record gestures</span>
+    </div>
+    <div class="countdown-box" id="countdownBox">
+      SELF-DESTRUCT: 8.0s
+    </div>
+  </div>
+
+  <div class="canvas-viewport">
+    <canvas id="demoCanvas"></canvas>
+    <div class="canvas-placeholder-hint" id="canvasHint">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 19l7-7 3 3-7 7-3-3z"/>
+        <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/>
+        <path d="M2 2l7.586 7.586"/>
+        <circle cx="11" cy="11" r="2"/>
+      </svg>
+      <p>Touch or click and drag to draw a trail note...</p>
+    </div>
+  </div>
+
+  <div class="canvas-controls" id="canvasControls">
+    <div class="palette-picker" id="palettePicker" title="Select Phosphor Color">
+      <button class="color-dot active" data-color="cyan" style="background: #00f2fe;" aria-label="Cyan Phosphor"></button>
+      <button class="color-dot" data-color="magenta" style="background: #ff0844;" aria-label="Magenta Neon"></button>
+      <button class="color-dot" data-color="lime" style="background: #00ff87;" aria-label="Acid Lime"></button>
+      <button class="color-dot" data-color="violet" style="background: #7f00ff;" aria-label="Electric Violet"></button>
+      <button class="color-dot" data-color="amber" style="background: #fee140;" aria-label="Solar Gold"></button>
+    </div>
+
+    <div class="action-buttons" id="actionButtons">
+      <button class="btn-xs" id="clearBtn">Clear</button>
+      <button class="btn-xs btn-xs-primary" id="playBtn">Replay Note</button>
+    </div>
+
+    <div class="viewer-actions" id="viewerActions" style="display: none;">
+      <span class="viewer-tag" id="viewerTag">🔒 Secret Message Received</span>
+      <button class="btn-xs btn-xs-primary" id="replyBtn" style="display: none;">Reply with a Finger Trail</button>
+    </div>
+  </div>
+</div>
